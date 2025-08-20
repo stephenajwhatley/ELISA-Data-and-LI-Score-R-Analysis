@@ -1,0 +1,522 @@
+# ELISA Data Analysis Pipeline (with Technical Outlier Removal, 4PL Fit, BDNF Concentration Interpolation and Statistical Analysis)
+# Author: [Whatley, S.A.J.]
+# Date: [2025-08-10]
+
+# 0. USER-DEFINED PARAMETERS
+file      <- "ELISA_RawData5.xlsx"        # Excel file path
+sheet_std <- "Standard Curve"             # Standard Curve sheet name
+sheet_smp <- "Sample Data"                # Sample Data sheet name
+
+# Column names for standards
+col_std_conc <- "Known Concentrations"
+col_std_ods  <- c("OD Response 1", "OD Response 2", "OD Response 3")
+
+# Column names for samples
+col_smp_id  <- "Sample ID"
+col_smp_grp <- "Group"
+col_smp_ods <- c("OD Reading 1", "OD Reading 2", "OD Reading 3")
+
+# 1. Load or install packages
+pkgs <- c("readxl", "dplyr", "tidyr", "drc", "rstatix", "effsize", "purrr", "ggpubr", "ggplot2",
+          "coin", "effectsize", "TOSTER")
+invisible(lapply(pkgs, function(p) {
+  if (!requireNamespace(p, quietly = TRUE)) install.packages(p)
+  library(p, character.only = TRUE)
+}))
+
+# 2. Modified Z-score function with MAD fallback and flooring
+calc_mod_z <- function(x) {
+  med     <- median(x, na.rm = TRUE)
+  mad_val <- median(abs(x - med), na.rm = TRUE)
+  if (mad_val < 1e-6) mad_val <- stats::mad(x, constant = 1.4826, na.rm = TRUE)
+  0.6745 * (x - med) / mad_val
+}
+
+# 3. Read and clean standard curve data
+std_raw <- readxl::read_excel(file, sheet = sheet_std) %>%
+  rename(
+    conc = !!col_std_conc,
+    od1  = !!col_std_ods[1],
+    od2  = !!col_std_ods[2],
+    od3  = !!col_std_ods[3]
+  ) %>%
+  mutate(conc_orig = conc,
+         conc      = as.numeric(as.character(conc_orig)))
+
+bad <- std_raw %>% filter(is.na(conc) & !is.na(conc_orig))
+if (nrow(bad)) stop(
+  "These 'Known Concentrations' couldn’t convert to numbers:\n",
+  paste(unique(bad$conc_orig), collapse = ", "),
+  "\nFix those cells in Excel and re-run."
+)
+
+# 4. Detect and report outliers in standard curve data
+std_long <- std_raw %>%
+  pivot_longer(cols = od1:od3, names_to = "well", values_to = "od") %>%
+  group_by(conc) %>%
+  mutate(
+    mz   = calc_mod_z(od),
+    keep = abs(mz) <= 3.5
+  ) %>%
+  ungroup()
+
+std_outlier_report <- std_long %>% filter(!keep) %>% count(conc, name = "wells_removed")
+if (nrow(std_outlier_report) > 0) {
+  std_outlier_report %>%
+    mutate(
+      message = paste0(
+        "Standard conc ", conc, ": removed ", wells_removed, " outlier readings."
+      )
+    ) %>%
+    pull(message) %>%
+    purrr::walk(message)
+}
+
+# 5. Create cleaned standard summary and fit 4PL
+std_clean    <- std_long %>% filter(keep) %>% group_by(conc) %>% summarise(od_bc = mean(od, na.rm = TRUE), .groups = "drop")
+std_for_fit  <- std_clean %>% filter(conc > 0)
+if (nrow(std_for_fit) < 4) stop("Need at least 4 nonzero concentration points for 4PL model.")
+
+model_4pl_raw <- drm(
+  od ~ conc,
+  data = std_long %>% filter(keep),
+  fct = LL.4(),
+)
+
+  # 5a. 4-PL Line Equation
+# Extract named coefficient vector
+coefs <- coef(model_4pl_raw)
+print(coefs)
+
+# Extract numeric values by name
+b_val <- coefs["b:(Intercept)"]      # Hill slope (b)
+d_val <- coefs["c:(Intercept)"]      # lower asymptote (c)
+a_val <- coefs["d:(Intercept)"]      # upper asymptote (d)
+c_val <- coefs["e:(Intercept)"]      # ED50 (e)
+
+# Define the equation label via bquote()
+q_label <- bquote(
+  italic(y) == .(round(d_val,2)) +
+    frac(.(round(a_val - d_val,2)), 1 + (x/.(round(c_val,2)))^.(round(b_val,2)))
+)
+print(q_label)
+
+  # 5b. Perform ANOVA lack‐of‐fit F-test
+lof_tab <- modelFit(model_4pl_raw)             # Bates & Watts ANOVA LOF test
+p_lof_raw <- as.numeric( lof_tab[2, "p value"] )   # Extract p‐value from the second row ("DRC model")
+
+# Format p‐value for plotmath (italic p <or== value)
+p_lof_label <- if (is.na(p_lof_raw)) {
+  # fallback if something went wrong
+  "NA"
+} else if (p_lof_raw < 0.001) {
+  "italic(p < 0.001)"
+} else if (p_lof_raw < 0.01) {
+  paste0("italic(p) == ", sprintf("italic(%.3f)", p_lof_raw))
+} else {
+  paste0("italic(p) == ", sprintf("italic(%.2f)", p_lof_raw))
+}
+
+  # 5c. Plot 4PL curve with bootstrapped ribbon
+if (any(!is.finite(std_for_fit$conc)) || min(std_for_fit$conc) <= 0) {
+  stop("Standard concentrations must be positive finite values for log-scale plotting.")
+}
+pred_conc <- exp(
+  seq(
+    log(min(std_for_fit$conc)),
+    log(max(std_for_fit$conc)),
+    length.out = 100
+  )
+)
+preds <- data.frame(conc = pred_conc)
+
+# Use the raw model for predictions
+preds$od <- predict(model_4pl_raw, newdata = preds)
+
+# debug check print
+print(head(preds))
+
+# Plot Standard-Curve Data with Fitted 4PL Model
+p <- ggplot() +
+  geom_point(data = std_for_fit, aes(x = conc, y = od_bc)) +
+  geom_line (data = preds, aes(x = conc, y = od), color = "#003380") +
+  scale_x_log10() +
+  labs(
+    x = expression(BDNF~Concentration~"("*pg~mL^{-1}*")"),
+    y = "Optical Density"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.title.y = element_text(face = "bold"),
+    axis.title.x = element_text(face = "bold")
+  )
+
+# Calculate SEM for each concentration
+std_sem <- std_long %>% filter(keep) %>% group_by(conc) %>%
+  summarise(
+    od_mean = mean(od, na.rm = TRUE),
+    od_sem  = sd(od, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+    
+# Convert to string
+eq_string <- deparse1(q_label)
+    
+# After `std_for_fit`, `preds`, and `std_sem` are ready:
+p_final <- ggplot() +
+
+  # 4PL fitted line (from p)
+  geom_line(
+    data = preds, aes(x = conc, y = od),
+    color = "#003380", size  = 0.8
+  ) +
+
+  # SEM error bars and mean points (from p2)
+  geom_errorbar(
+    data  = std_sem,
+    aes(x = conc, ymin = od_mean - od_sem, ymax = od_mean + od_sem),
+    width = 0.025,
+    color = "grey70"
+  ) +
+  geom_point(
+    data = std_sem,
+    aes(x = conc, y = od_mean),
+    color = "#003380",
+    size  = 2
+  ) +
+
+  # Remove manual h/v lines in favor of axis spines
+  # scale settings for log-log axes
+  scale_x_log10(
+    breaks  = c(12.5, 100, 800),
+    labels  = c(12.5, 100, 800),
+    limits  = c(9, 900),
+    expand  = c(0, 0),
+  ) +
+  scale_y_log10(
+    breaks  = c(0.01, 0.1, 1, 10),
+    limits  = c(0.01, 10),
+    expand  = c(0, 0),
+    labels  = scales::label_number(accuracy = 0.01)
+  ) +
+
+  # Titles and labels
+  labs(
+    x     = expression(bold(BDNF~Concentration~"("*pg/mL*")")),
+    y     = expression(bold(Optical~Density))
+  ) +
+
+  # Clean theme with bold axis titles and black spines
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position     = "none",
+    axis.title.x         = element_text(face = "bold", size = 14, margin = margin(t = 10)),
+    axis.title.y         = element_text(face = "bold", size = 14, margin = margin(r = 10)),
+    axis.text.x          = element_text(size = 12, color = "black"),
+    axis.text.y          = element_text(size = 12, color = "black"),
+    axis.line            = element_line(color = "black", size = 0.6),
+    axis.ticks.length    = unit(0.25, "cm"),
+    plot.margin          = margin(10, 10, 10, 10)
+  ) + 
+
+  # 5d. Plot Annotations
+
+    # Lack-of-fit p-value annotation
+    annotate("text",
+           x     = min(preds$conc) * 1.3,
+           y     = max(preds$od)   * 2.2, 
+           label = p_lof_label,
+           parse = TRUE,
+           size  = 4,
+           hjust = 0
+            ) + 
+    
+    # 4-PL Line Equation annotation
+    annotate("text",
+           x     = min(preds$conc) * 1.3,
+           y     = max(preds$od)   * 1.3,   # slightly lower than p-value
+           label = eq_string,
+           parse = TRUE,
+           size  = 4,
+           hjust = 0)
+    
+# Print Combined Figure
+print(p_final)
+summary(model_4pl_raw)
+
+# 6. Read and process sample data
+smp_long <- readxl::read_excel(file, sheet = sheet_smp) %>%
+  rename(
+    sample = !!col_smp_id,
+    group  = !!col_smp_grp,
+    od1    = !!col_smp_ods[1],
+    od2    = !!col_smp_ods[2],
+    od3    = !!col_smp_ods[3]
+  ) %>%
+  mutate(
+    group = recode(
+      group,
+      `Wild Type`   = "Wild Type",
+      `Cyfip1+/-`   = "Cyfip1+/-"
+    )
+  ) %>%
+  pivot_longer(cols = od1:od3, names_to = "well", values_to = "od") %>%
+  group_by(sample, group) %>%
+  mutate(mz = calc_mod_z(od), keep = abs(mz) <= 3.5) %>%
+  ungroup()
+
+# Report sample outliers
+outlier_report <- smp_long %>%
+  group_by(sample) %>%
+  summarise(
+    total_wells  = n(),
+    wells_kept    = sum(keep),
+    wells_removed = total_wells - wells_kept,
+    .groups = "drop"
+  ) %>%
+  filter(wells_removed > 0)
+if (nrow(outlier_report) > 0) {
+  outlier_report %>%
+    mutate(
+      msg = paste0(
+        "Sample '", sample, "' removed ", wells_removed, " outlier well(s)."
+      )
+    ) %>%
+    pull(msg) %>%
+    purrr::walk(message)
+}
+
+# 7. Summarise cleaned OD means and interpolate concentrations
+smp_clean <- smp_long %>%
+  filter(keep) %>%
+  group_by(sample, group) %>%
+  summarise(od_mean = mean(od, na.rm = TRUE), .groups = "drop") %>%
+  mutate(pred_conc = ED(model_4pl_raw, respLev = od_mean, type = "absolute")[, "Estimate"]) 
+
+# 8. Refactor group and check group sizes
+smp_clean <- smp_clean %>% mutate(group = factor(group, levels = c("Wild Type", "Cyfip1+/-")))
+counts <- table(smp_clean$group)
+if (any(counts < 1)) stop("Need at least one non-outlier sample in each group.")
+
+# 9. Assumption testing
+norm_tests <- smp_clean %>% group_by(group) %>% shapiro_test(pred_conc)
+var_test  <- levene_test(pred_conc ~ group, data = smp_clean, center = "median")
+
+  #Print Group Summaries
+   group_summary <- smp_clean %>%
+    group_by(group) %>%
+    summarise(
+      n     = n(),
+      mean  = mean(pred_conc),
+      sd    = sd(pred_conc),
+      median= median(pred_conc),
+      IQR   = IQR(pred_conc),
+      min   = min(pred_conc),
+      max   = max(pred_conc)
+    ) %>%
+    left_join(
+      smp_long %>%
+        filter(!keep) %>%
+        group_by(group) %>%
+        summarise(outlier_replicates_removed = n(), .groups = "drop"),
+      by = "group"
+    ) %>% 
+    replace_na(list(outlier_replicates_removed = 0))
+  print(group_summary)
+  
+# 10. Group Testing
+if (all(norm_tests$p > 0.05) && var_test$p > 0.05) {
+  test_res  <- t_test(pred_conc ~ group, data = smp_clean, var.equal = TRUE)
+  test_used <- "Student’s t-test"
+  reason    <- "normality and homogeneity of variance satisfied"
+} else if (all(norm_tests$p > 0.05) && var_test$p <= 0.05) {
+  test_res  <- t_test(pred_conc ~ group, data = smp_clean, var.equal = FALSE)
+  test_used <- "Welch’s t-test"
+  reason    <- "Brown-Forsythe p ≤ 0.05 (heterogeneity of variance)"
+} else {
+  test_res  <- rstatix::wilcox_test(pred_conc ~ group, data = smp_clean)
+  test_used <- "Mann–Whitney U"
+  reason    <- "at least one group failed Shapiro-Wilk test for normality"
+}
+
+p_val <- test_res$p
+
+# 11. Boxplot
+bp_stats <- ggplot_build(
+  ggplot(smp_clean, aes(x = group, y = pred_conc)) + 
+    geom_boxplot(outlier.shape = NA)
+)$data[[1]] %>%
+  mutate(
+    x_center = (xmin + xmax) / 2,
+    cap_width = (xmax - xmin) / 3
+  )
+
+# Add group factor for coloring
+bp_stats$group <- factor(c("Wild Type", "Cyfip1+/-"), levels = c("Wild Type", "Cyfip1+/-"))
+
+# Add group sample sizes
+group_counts <- smp_clean %>% count(group)
+
+# Format p-value string for annotation
+if (p_val < 0.001) {
+  p_label <- "italic(p) < 0.001"
+} else if (p_val < 0.01) {
+  p_label <- paste0("italic(p) == ", sprintf("%.3f", p_val))
+} else {
+  p_label <- paste0("italic(p) == ", sprintf("%.2f", p_val))
+}
+
+bp <- ggplot(smp_clean, aes(x = group, y = pred_conc)) +
+  geom_boxplot(
+    outlier.shape = NA,
+    width = 0.5,
+    fill = NA,
+    color = c("#003380", "#FF6600"),
+    size = 0.6
+  ) +
+  geom_segment(data = bp_stats,
+               aes(x = x_center - cap_width/2, xend = x_center + cap_width/2,
+                   y = ymin, yend = ymin, color = group),
+               size = 0.8) +
+  geom_segment(data = bp_stats,
+               aes(x = x_center - cap_width/2, xend = x_center + cap_width/2,
+                   y = ymax, yend = ymax, color = group),
+               size = 0.8) +
+  stat_summary(
+    fun = median,
+    geom = "line",
+    aes(group = group, color = group),
+    linetype = "solid",
+    size = 1
+  ) +
+  geom_jitter(
+    aes(color = group),
+    width = 0.15,
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  scale_color_manual(
+    values = c("Wild Type" = "#003380", "Cyfip1+/-" = "#FF6600")
+  ) +
+  scale_y_continuous(
+    limits = c(200, 400),
+    breaks = seq(200, 400, 50),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  labs(
+    y = expression(bold(BDNF~Concentration~"("*pg/mL*")")),
+    x = "Mouse Genotype"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.title.y  = element_text(face = "bold", color = "black", size = 14, margin = margin(r = 10)),
+    axis.text.y   = element_text(face = "plain", color = "black", size = 13),
+    axis.title.x  = element_text(face = "bold", color = "black", size = 14, margin = margin(t = 15)),
+    axis.text.x   = element_text(face = "plain", color = "black", size = 13),
+  ) +
+  geom_text(
+    data = group_counts,
+    aes(x = group, y = 205, label = paste0("n = ", n)),
+    inherit.aes = FALSE,
+    size = 4.5,
+    fontface = "italic"
+  ) +
+    # Parametric or non-parametric p-value annotation
+    annotate("text",
+             x = 1.5, y = 390, 
+             label = p_label, parse = TRUE, 
+             size = 5, hjust = 0.5
+            )
+
+print(bp)
+
+# 12. Effect size calculation and interpretation
+should_run_equiv <- FALSE
+if (test_used == "Mann–Whitney U") {
+  es_df <- wilcox_effsize(
+    smp_clean, pred_conc ~ group,
+    ci = TRUE, conf.level = 0.95, ci.method = "percentile"
+  )
+  g      <- es_df$effsize[1]
+  ci_low <- es_df$conf.low[1]
+  ci_high<- es_df$conf.high[1]
+  ci_text<- paste0("95% CI [", round(ci_low,3), ", ", round(ci_high,3), "]")
+  groups <- unique(smp_clean$group)
+  g1     <- groups[1]; g2 <- groups[2]
+  comp   <- outer(
+    smp_clean$pred_conc[smp_clean$group==g1],
+    smp_clean$pred_conc[smp_clean$group==g2],
+    FUN=function(x,y) sign(x-y)
+  )
+  prop_gt<- mean(comp==1); prop_lt<- mean(comp==-1)
+  magnitude <- ifelse(abs(g)<0.1,"negligible",
+                  ifelse(abs(g)<0.3,"small",
+                  ifelse(abs(g)<0.5,"medium","large")))
+  should_run_equiv<-(magnitude=="negligible")
+  direction<- ifelse(g>0,paste0("positive, indicating ",g1," > ",g2),
+                 ifelse(g<0,paste0("negative, indicating ",g2," > ",g1),"no direction"))
+  es_qual <- paste0(
+    "Effect size (rank-biserial) is ", magnitude,
+    " (", round(g,3), ", ", ci_text, ").
+",
+    round(100*prop_gt,1), "% favor ", g1, ", ",
+    round(100*prop_lt,1), "% favor ", g2, ". Direction: ", direction
+  )
+} else {
+  # Compute Hedges' g directly from raw data
+  es <- effectsize::hedges_g(pred_conc ~ group, data = smp_clean, conf.level = 0.95)
+  g        <- es$Hedges_g
+  ci_low   <- es$CI_low
+  ci_high  <- es$CI_high
+  magnitude <- ifelse(abs(g) < 0.2, "negligible",
+                  ifelse(abs(g) < 0.5, "small",
+                  ifelse(abs(g) < 0.8, "medium", "large")))
+  should_run_equiv <- (magnitude == "negligible")
+  direction<- ifelse(g>0,"+", ifelse(g<0,"-","0"))
+  es_qual <- paste0(
+    "Effect size is ", magnitude,
+    " (", direction, ", g=", round(g,3), ") with 95% CI [",
+    round(ci_low,3), ", ", round(ci_high,3), "]."
+  )
+}
+
+# 13. Equivalence test if negligible effect size
+if (should_run_equiv) {
+  m1<-mean(smp_clean$pred_conc[smp_clean$group==g1])
+  m2<-mean(smp_clean$pred_conc[smp_clean$group==g2])
+  sd1<-sd(smp_clean$pred_conc[smp_clean$group==g1])
+  sd2<-sd(smp_clean$pred_conc[smp_clean$group==g2])
+  n1<-sum(smp_clean$group==g1); n2<-sum(smp_clean$group==g2)
+  tost_res <- TOSTER::tsum_TOST(
+    m1=m1, sd1=sd1, n1=n1,
+    m2=m2, sd2=sd2, n2=n2,
+    low_eqbound=-0.2, high_eqbound=0.2,
+    alpha=0.05
+  )
+  p_low <- tost_res$TOST$p.value[1]
+  p_high<- tost_res$TOST$p.value[2]
+  eq_msg<- if(!is.na(p_low)&&!is.na(p_high)&&p_low<0.05&&p_high<0.05)
+    "Groups equivalent within ±0.2." else "Cannot conclude equivalence."
+  es_qual<- paste0(es_qual, "\n\n=== TOST Equivalence Test (approx) ===\n",
+                   "Lower p=", round(p_low,4), ", Upper p=", round(p_high,4), ". ", eq_msg)
+}
+
+# 14. Interpret p-value and output
+interpret_result<-function(p){
+  if(p<0.001) "Highly significant (p<0.001)"
+  else if(p<0.01) "Very significant (p<0.01)"
+  else if(p<0.05) "Significant (p<0.05)"
+  else "Not significant (p≥0.05)"
+}
+qual<-interpret_result(p_val)
+
+cat("=== Normality ===\n"); print(norm_tests)
+cat("Interpretation: ", if(all(norm_tests$p>0.05)) "All normal" else "Non-normal groups", "\n\n")
+cat("=== Variance ===\n"); print(var_test)
+cat("Interpretation: ", if(var_test$p>0.05) "Homoscedastic" else "Heteroscedastic", "\n\n")
+cat("=== Test ===\n", test_used, " (", reason, ")\n\n")
+cat("=== Result ===\n", qual, " (p=", round(p_val,4), ")\n\n")
+cat("=== Effect Size & Practical ===\n", es_qual, "\n")
+    
