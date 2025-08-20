@@ -9,7 +9,7 @@ This repository contains three standalone R scripts for analysing Brain-derived 
 ```
 ELISA-Data-and-LI-Score-R-Analysis/
 ├── README.md                                              # Project overview and usage
-└── scripts/                                               # R scripts for Data Analysis
+└── R Scripts/                                             # R scripts for Data Analysis
     ├── ELISA (Run 5) – BDNF Mouse Genotype Analysis       # R Script 1
     ├── ELISA (Run 6) – BDNF Rat Ageing Analysis           # R Script 2
     └── Rat Learning Index Score Analysis                  # R Script 3  
