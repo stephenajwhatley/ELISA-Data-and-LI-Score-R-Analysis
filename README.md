@@ -63,4 +63,5 @@ Replace [INSERT_DOI] with the version-specific DOI, which can be found in the li
 
 The following table represents the minor alterations that enable you to adapt the ELISA code for analyses with different parameters:  
   
-<img width="900" height="700" alt="Screenshot 2025-08-19 at 16 22 05" src="https://github.com/user-attachments/assets/6b1e50a3-a793-440e-8b28-c6f54510de25" />
+<img width="900" height="700"  alt="Code Reproducibility Table" src="https://github.com/user-attachments/assets/5b0f54e1-063a-4df5-8e0e-efdaceaccaa6" />
+
