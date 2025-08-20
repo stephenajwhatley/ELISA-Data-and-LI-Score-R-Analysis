@@ -1,5 +1,5 @@
+# ELISA Data and LI Score R-Analysis
 ## Project Details
-#### Title: ELISA Data and LI Score R-Analysis
 #### Short Description
 This project offers the first publicly available R scripts implementing a complete ELISA workflow for two-group comparison.  This includes technical outlier removal, 4PL curve fitting, and two-group comparison via summary and inferential statistics, boxplot generation, and biological outlier detection for sensitivity analyses.
 #### Overview
