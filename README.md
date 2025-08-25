@@ -61,9 +61,9 @@ Developed to support the Research Report for the MRes Bioscience (Neuroscience) 
 ## Reuse and Citation
 These scripts are fully reproducible and may be adapted for your own analyses. If you reuse any portion of this code, please cite the exact version by its Zenodo DOI. Upon the first release, this repository will be archived and assigned a DOI. For example:
 
-#### Whatley, S.A.J. (2025). ELISA Data and LI Score R-Analysis (Version 1.0) [R Code]. Zenodo. https://doi.org/10.5281/zenodo.[INSERT_DOI]
+#### Whatley, S.A.J. (2025). _ELISA Data and LI Score R-Analysis, Version 1.0.0_ [R Code]. Zenodo. Available at: https://doi.org/10.5281/zenodo.[INSERT_DOI]
 
-Replace [INSERT_DOI] with the version-specific DOI, which can be found in the live version of this ReadMe: https://github.com/stephenajwhatley/ELISA-Data-and-LI-Score-R-Analysis  
+Replace [INSERT_DOI] with the version-specific DOI, the latest of which is listed in the live ReadMe: https://github.com/stephenajwhatley/ELISA-Data-and-LI-Score-R-Analysis  
 
 The following table represents the minor alterations that enable you to adapt the ELISA code for analyses with different parameters:  
   
