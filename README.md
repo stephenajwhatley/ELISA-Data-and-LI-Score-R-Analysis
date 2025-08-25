@@ -44,10 +44,14 @@ Loads LI Score data and conducts statistical analyses as with Scripts 1 and 2, e
 Outputs include: data cleaning, biological outlier detection, statistical results (summary and inferential), and a boxplot comparing the two groups.
 
 ## Authors & Acknowledgments
-- Author: Mr Stephen Arthur James Whatley
-- Supervisors: Dr. Simon Trent, Dr. Stuart Jenkins
-- Completed for the MRes Bioscience (Neuroscience) degree at Keele University, School of Life Sciences.
-- Funding and institutional support from the School of Life Sciences, Keele University.
+#### Author: Mr Stephen Arthur James Whatley, BSc (Hons)
+Developed to support the Research Report for the MRes Bioscience (Neuroscience) degree at Keele University, School of Life Sciences.  
+
+#### Acknowledgements
+**All code and analytical methods in this repository were developed independently by the author.** Special thanks to:
+- Mr Victor Almeida — for advice on code debugging and presentation.  
+- Dr Priscilla Gathoni — for recommending the use of R.  
+- Dr Simon Trent & Dr Stuart Jenkins — for supervising the broader MRes Research Report.
 
 ## Use
 - Copy or download this repository.
