@@ -64,6 +64,8 @@ These scripts are fully reproducible and may be adapted for your own analyses. I
 
 #### Whatley, S.A.J. (2025). _ELISA Data and LI Score R-Analysis, Version 1.0.0_ [R Code]. Zenodo. Available at: https://doi.org/10.5281/zenodo.16951065
 
+The live GitHub Repository is available at: https://github.com/stephenajwhatley/ELISA-Data-and-LI-Score-R-Analysis
+
 The following table represents the minor alterations that enable you to adapt the ELISA code for analyses with different parameters:  
   
 <img width="900" height="700"  alt="Code Reproducibility Table" src="https://github.com/user-attachments/assets/5b0f54e1-063a-4df5-8e0e-efdaceaccaa6" />
