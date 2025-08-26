@@ -43,12 +43,13 @@ Loads LI Score data and conducts statistical analyses as with Scripts 1 and 2, e
   
 Outputs include: data cleaning, biological outlier detection, statistical results (summary and inferential), and a boxplot comparing the two groups.
 
-## Authors & Acknowledgments
-#### Author: Mr Stephen Arthur James Whatley, BSc (Hons)
-Developed to support the Research Report for the MRes Bioscience (Neuroscience) degree at Keele University, School of Life Sciences.  
+## Author & Acknowledgments
+#### Author: Mr Stephen Arthur James Whatley, BSc (Hons) [<img width="24" height="24" alt="ORCID-iD_icon_vector-small" src="https://github.com/user-attachments/assets/4b07a438-d569-46bb-9b91-7ff90a0fed01" />](https://orcid.org/0009-0004-7099-7384)
+_Developed to support the Research Report for the MRes Bioscience (Neuroscience) degree at Keele University, School of Life Sciences.  
+For questions or collaboration, open an issue via the **Issues** tab on this GitHub repository or email: [stephenajwhatley@gmail.com](mailto:stephenajwhatley@gmail.com)_
 
 #### Acknowledgements
-**All code and analytical methods in this repository were developed independently by the author.** Special thanks to:
+**All code and analytical methods in this repository were developed independently by the author.** Special thanks to: 
 - Mr Victor Almeida — for advice on code debugging and presentation.  
 - Dr Priscilla Gathoni — for recommending the use of R.  
 - Dr Simon Trent & Dr Stuart Jenkins — for supervising the broader MRes Research Report.
